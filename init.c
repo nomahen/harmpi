@@ -96,6 +96,8 @@ void init()
   void init_sndwave(void);
   void init_entwave(void);
   void init_monopole(double Rout_val);
+  void init_bh(void);
+  void init_ce(void);
 
   switch( WHICHPROBLEM ) {
   case MONOPOLE_PROBLEM_1D:
@@ -117,6 +119,11 @@ void init()
   case BONDI_PROBLEM_1D:
   case BONDI_PROBLEM_2D:
     init_bondi();
+    break;
+  case BH_PROBLEM_2D:
+    init_bh();
+  case COMMON_ENVELOPE:
+    init_ce();
     break;
   }
 
@@ -1250,6 +1257,405 @@ void init_sndwave()
   
 }
 
+void init_bh()
+{
+	int i,j,k ;
+	double r,th,phi,sth,cth ;
+	double ur,uh,up,u,rho ;
+	double X[NDIM] ;
+	struct of_geom geom ;
+	double rhor;
+
+	/* for disk interior */
+	double l,rin,lnh,expm2chi,up1 ;
+	double DD,AA,SS,thin,sthin,cthin,DDin,AAin,SSin ;
+	double kappa,hm1 ;
+
+	/* for magnetic field */
+	double A[N1+1][N2+1][N3+1] ;
+	double rho_av,rhomax,umax,beta,bsq_ij,bsq_max,norm,q,beta_act ;
+	double rmax, lfish_calc(double rmax) ;
+
+        /* for wind */
+	double mach, cinf, vinf ;
+
+  /* for bondi-hoyle units */
+  double ra ;
+
+	/* some physics parameters */
+	gam = 4./3. ;
+        mach = 2.0 ;
+
+	/* black hole parameters */
+        a = 0.9375 ;
+
+	kappa = 1.e-3 ;
+	cinf = sqrt(gam*kappa/(gam - 1.0)) ; // Ambient sound speed 
+  vinf = mach * cinf ; // wind velocity
+  ra = 2.0 / (vinf*vinf) ; // accretion radius. G = M = 1 are default units
+
+	/* radius of the inner edge of the initial density distribution */
+	rin = 10.;/* 0.05*ra; Now that ra is defined, make this multiple of ra. Much larger than Schwarzchild!*/
+
+        /* some numerical parameters */
+        lim = MC ;
+        failed = 0 ;	/* start slow */
+        cour = 0.9 ;
+        dt = 1.e-5 ;
+	rhor = (1. + sqrt(1. - a*a)) ;
+	R0 = -2*rhor ;
+        Rin = 0.5*rhor ;
+        Rout = 1e3;/* 50.0*ra ;Now that ra is defined, make this multiple of ra.*/
+        rbr = Rout*10.;
+        npow2=4.0; //power exponent
+        cpow2=1.0; //exponent prefactor (the larger it is, the more hyperexponentiation is)
+
+
+        t = 0. ;
+        hslope = 1.0 ; //uniform angular grid
+
+	if(N2!=1) {
+	  //2D problem, use full pi-wedge in theta
+	  fractheta = 1.;
+	}
+	else{
+	  //1D problem (since only 1 cell in theta-direction), use a restricted theta-wedge
+	  fractheta = 1.e-2;
+	}
+        fracphi = 1.;
+
+        set_arrays() ;
+        set_grid() ;
+
+	coord(-2,0,0,CENT,X) ;
+	bl_coord(X,&r,&th,&phi) ;
+	fprintf(stderr,"rmin: %g\n",r) ;
+	fprintf(stderr,"rmin/rm: %g\n",r/(1. + sqrt(1. - a*a))) ;
+
+        /* output choices */
+	tf = Rout ;
+
+	DTd = 2.; /* 1.0*ra/vinf; dumping frequency, in BHL units */
+	DTl = 2.; /* 1.0*ra/vinf; logfile frequency, in BHL units */
+	DTi = 2.;	/* 1.0*ra/vinf; image file frequ., in BHL units */
+        DTr = 50.; /* 5*ra/vinf; restart file frequ., in BHL units */
+        DTr01 = 1000 ; /* restart file frequ., in timesteps */
+
+	/* start diagnostic counters */
+	dump_cnt = 0 ;
+	image_cnt = 0 ;
+	rdump_cnt = 0 ;
+        rdump01_cnt = 0 ;
+	defcon = 1. ;
+
+	rhomax = 0. ;
+	umax = 0. ;
+	ZSLOOP(0,N1-1,0,N2-1,0,N3-1) {
+		coord(i,j,k,CENT,X) ;
+		bl_coord(X,&r,&th,&phi) ;
+
+		sth = sin(th) ;
+		cth = cos(th) ;
+
+		/* regions outside uniform density distribution */
+		if(r < rin) {
+			rho = 1.e-7*RHOMIN ;
+                        u = 1.e-7*UUMIN ;
+
+			/* these values are demonstrably physical
+			   for all values of a and r */
+			/*
+                        ur = -1./(r*r) ;
+                        uh = 0. ;
+			up = 0. ;
+			*/
+
+			ur = 0. ;
+			uh = 0. ;
+			up = 0. ;
+
+			/*
+			get_geometry(i,j,CENT,&geom) ;
+                        ur = geom.gcon[0][1]/geom.gcon[0][0] ;
+                        uh = geom.gcon[0][2]/geom.gcon[0][0] ;
+                        up = geom.gcon[0][3]/geom.gcon[0][0] ;
+			*/
+
+			p[i][j][k][RHO] = rho ;
+			p[i][j][k][UU] = u ;
+			p[i][j][k][U1] = ur ;
+			p[i][j][k][U2] = uh ;
+			p[i][j][k][U3] = up ;
+		}
+		/* region inside initial uniform density */
+		else { 
+		  rho = 1.;
+		  u = kappa*pow(rho,gam)/(gam - 1.) ;
+		  ur = vinf * cth ;
+		  uh = vinf * sth ;
+
+
+		  p[i][j][k][RHO] = rho ;
+		  if(rho > rhomax) rhomax = rho ;
+		  p[i][j][k][UU] = u;
+		  if(u > umax && r > rin) umax = u ;
+		  p[i][j][k][U1] = ur ;
+		  p[i][j][k][U2] = uh ;
+		  p[i][j][k][U3] = up ;
+		  
+		  /* convert from 4-vel to 3-vel */
+		  coord_transform(p[i][j][k],i,j,k) ;
+		}
+
+		p[i][j][k][B1] = 0. ;
+		p[i][j][k][B2] = 0. ;
+		p[i][j][k][B3] = 0. ;
+
+	}
+
+	fixup(p) ;
+	bound_prim(p) ;
+    
+
+#if(0) //disable for now
+	/* first find corner-centered vector potential */
+	ZSLOOP(0,N1,0,N2,0,N3) A[i][j][k] = 0. ;
+        ZSLOOP(0,N1,0,N2,0,N3) {
+                /* vertical field version */
+                /*
+                coord(i,j,l,CORN,X) ;
+                bl_coord(X,&r,&th,&phi) ;
+
+                A[i][j][k] = 0.5*r*sin(th) ;
+                */
+
+                /* field-in-disk version */
+		/* flux_ct */
+                rho_av = 0.25*(
+                        p[i][j][RHO] +
+                        p[i-1][j][RHO] +
+                        p[i][j-1][RHO] +
+                        p[i-1][j-1][RHO]) ;
+
+                q = rho_av/rhomax - 0.2 ;
+                if(q > 0.) A[i][j][k] = q ;
+
+        }
+
+	/* now differentiate to find cell-centered B,
+	   and begin normalization */
+	bsq_max = 0. ;
+	ZLOOP {
+		get_geometry(i,j,k,CENT,&geom) ;
+
+		/* flux-ct */
+		p[i][j][B1] = -(A[i][j][k] - A[i][j+1][k]
+				+ A[i+1][j][k] - A[i+1][j+1][k])/(2.*dx[2]*geom.g) ;
+		p[i][j][B2] = (A[i][j][k] + A[i][j+1][k]
+				- A[i+1][j][k] - A[i+1][j+1][k])/(2.*dx[1]*geom.g) ;
+
+		p[i][j][B3] = 0. ;
+
+		bsq_ij = bsq_calc(p[i][j][k],&geom) ;
+		if(bsq_ij > bsq_max) bsq_max = bsq_ij ;
+	}
+	fprintf(stderr,"initial bsq_max: %g\n",bsq_max) ;
+
+	/* finally, normalize to set field strength */
+	beta_act = (gam - 1.)*umax/(0.5*bsq_max) ;
+	fprintf(stderr,"initial beta: %g (should be %g)\n",beta_act,beta) ;
+	norm = sqrt(beta_act/beta) ;
+	bsq_max = 0. ;
+	ZLOOP {
+		p[i][j][k][B1] *= norm ;
+		p[i][j][k][B2] *= norm ;
+
+		get_geometry(i,j,k,CENT,&geom) ;
+		bsq_ij = bsq_calc(p[i][j][k],&geom) ;
+		if(bsq_ij > bsq_max) bsq_max = bsq_ij ;
+	}
+	beta_act = (gam - 1.)*umax/(0.5*bsq_max) ;
+	fprintf(stderr,"final beta: %g (should be %g)\n",beta_act,beta) ;
+
+	/* enforce boundary conditions */
+	fixup(p) ;
+	bound_prim(p) ;
+    
+#endif
+
+    
+
+    
+#if( DO_FONT_FIX ) 
+	set_Katm();
+#endif 
+
+
+}
+
+void init_ce()
+{
+	int i,j,k ;
+	double r,th,phi,sth,cth,sphi,cphi;
+	double ur,uh,up,u,rho ;
+	double X[NDIM] ;
+	struct of_geom geom ;
+	double rhor;
+
+	/* for disk interior */
+	double l,rin,lnh,expm2chi,up1 ;
+	double DD,AA,SS,thin,sthin,cthin,DDin,AAin,SSin ;
+	double kappa,hm1 ;
+
+	/* for magnetic field */
+	double A[N1+1][N2+1][N3+1] ;
+	double rho_av,rhomax,umax,beta,bsq_ij,bsq_max,norm,q,beta_act ;
+	double rmax, lfish_calc(double rmax) ;
+
+  /* bondi-hoyle */
+  double ra ; // accretion radius. default units of rg, so this sets scale of problem
+	double mach, cinf, vinf, rhoinf ; // wind properties
+
+  // User parameters //
+
+	/* some physics parameters */
+	gam = 5./3. ; // ratio of specific heats
+  mach = 2.0 ;  // mach number of incident wind
+
+	/* black hole parameters */
+  a = 0.0 ; // dimensionless black hole spin
+
+  /* parameters related to computational domain */
+	rin = 2.0 * (1. + sqrt(1. - a*a)) ; // radius of the inner edge of the initial density distribution
+  Rout = 1e3; // outer boundary of domain
+
+  /* bondi-hoyle parameters */
+  ra = 100.0 ; // set ra in terms of rg.
+  rhoinf = 1.0 ; // set ambient density. density should be scaleable, so 1 is fine
+
+  /* some numerical parameters */
+  lim = MC ;   // slope limiter?
+  failed = 0 ;	/* start slow */ // Nick: I don't know what this does
+  cour = 0.5 ; // Courant number?
+  dt = 1.e-5 ; // initial dt
+  hslope = 1.0 ; // uniform angular grid
+
+  /* output choices */
+	tf =  20.0*ra; // Rout ;
+	DTd = 2.; /* dumping frequency */
+	DTl = 2.; /* logfile frequency */
+	DTi = 2.;	/* image file frequ. */
+  DTr = 50.; /* restart file frequ. */
+  DTr01 = 1000 ; /* restart file frequ., in timesteps */
+
+  // calculations from user parameters //
+  vinf = sqrt(2.0/ra) ; // from definition of accretion radius in G=M=1 units
+  cinf = vinf/mach    ; // get ambient sound speed from wind velocity and mach number
+  kappa = (gam - 1.0)*cinf*cinf/gam ; // polytropic constant is a function of sound speed
+
+	rhor = (1. + sqrt(1. - a*a)) ;
+	R0 = -2*rhor ;
+  Rin = 0.5*rhor ;
+  rbr = Rout*10.;
+  npow2=4.0; //power exponent
+  cpow2=1.0; //exponent prefactor (the larger it is, the more hyperexponentiation is)
+
+  t = 0. ;
+
+  // Nick: Let 2D problem be in r, phi, not theta!
+	if(N2!=1) {
+	  //3D problem, use full pi-wedge in theta
+	  fractheta = 1.;
+	}
+	else{
+	  //2D problem (since only 1 cell in theta-direction), use a restricted theta-wedge
+	  fractheta = 1.e-2;
+	}
+
+  // Problem configured for 2D or 3D, always need to use full phi range
+  fracphi = 2.; 
+
+  set_arrays() ;
+  set_grid() ;
+
+	coord(-2,0,0,CENT,X) ;
+	bl_coord(X,&r,&th,&phi) ;
+	fprintf(stderr,"rmin: %g\n",r) ;
+	fprintf(stderr,"rmin/rm: %g\n",r/(1. + sqrt(1. - a*a))) ;
+
+	/* start diagnostic counters */
+	dump_cnt = 0 ;
+	image_cnt = 0 ;
+	rdump_cnt = 0 ;
+  rdump01_cnt = 0 ;
+	defcon = 1. ;
+
+	rhomax = 0. ;
+	umax = 0. ;
+	ZSLOOP(0,N1-1,0,N2-1,0,N3-1) {
+		coord(i,j,k,CENT,X) ;
+		bl_coord(X,&r,&th,&phi) ;
+
+		sth = sin(th) ;
+		cth = cos(th) ;
+    sphi = sin(phi) ;
+    cphi = cos(phi) ;
+
+		/* inner region near black hole */
+		if(r < rin) {
+			rho = 1.e-7*RHOMIN ;
+      u = 1.e-7*UUMIN ;
+
+			ur = 0. ;
+			uh = 0. ;
+			up = 0. ;
+
+			p[i][j][k][RHO] = rho ;
+			p[i][j][k][UU] = u ;
+			p[i][j][k][U1] = ur ;
+			p[i][j][k][U2] = uh ;
+			p[i][j][k][U3] = up ;
+		}
+		/* main computational domain */
+		else { 
+		  rho = rhoinf;
+		  u = kappa*pow(rho,gam)/(gam - 1.) ;
+
+      // Nick: Wind velocity is in +x-direction by default
+      if(N2!=1){
+        // 3D problem
+        ur = vinf * cphi * sth ;
+        uh = vinf * cphi * cth ; 
+        up = vinf * -1. * sphi ; 
+      }
+      else{
+        // 2D problem, no theta dependence
+        ur = vinf * cphi ; 
+        up = vinf * -1. * sphi ;
+      }
+
+		  p[i][j][k][RHO] = rho ;
+		  if(rho > rhomax) rhomax = rho ;
+		  p[i][j][k][UU] = u;
+		  if(u > umax && r > rin) umax = u ;
+		  p[i][j][k][U1] = ur ;
+		  p[i][j][k][U2] = uh ;
+		  p[i][j][k][U3] = up ;
+		  
+		  /* convert from 4-vel to 3-vel */
+		  coord_transform(p[i][j][k],i,j,k) ;
+		}
+
+		p[i][j][k][B1] = 0. ;
+		p[i][j][k][B2] = 0. ;
+		p[i][j][k][B3] = 0. ;
+
+	}
+
+	fixup(p) ;
+	bound_prim(p) ;
+
+}
 
 /* this version starts w/ BL 4-velocity and
  * converts to relative 4-velocities in modified

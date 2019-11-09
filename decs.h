@@ -78,8 +78,10 @@
 #define BONDI_PROBLEM_2D 6
 #define SNDWAVE_TEST 7
 #define ENTWAVE_TEST 8
+#define BH_PROBLEM_2D 9
+#define COMMON_ENVELOPE 10
 
-#define WHICHPROBLEM TORUS_PROBLEM
+#define WHICHPROBLEM COMMON_ENVELOPE
 #define DOKTOT   1
 #define DOCYLINDRIFYCOORDS 0
 
@@ -122,7 +124,7 @@
 #define PERIODIC (0)          /* whether or not to use periodic boundary conditions */
 #define OUTFLOW  (0)          /* whether or not to use outflow boundary conditions in all directions */
 #elif WHICHPROBLEM == BONDI_PROBLEM_1D
-#define N1       (64)         /* number of physical zones in X1-direction */
+#define N1       (256)         /* number of physical zones in X1-direction */
 #define N2       (1)          /* number of physical zones in X2-direction */
 #define N3       (1)          /* number of physical zones in X3-direction */
 #define GR       (1)          /* whether or not to use GR */
@@ -156,6 +158,24 @@
 #define BL       (0)          /* whether or not to use BL coords */
 #define INFLOW   (1)          /* whether or not to allow inflow at boundaries */
 #define PERIODIC (1)          /* whether or not to use periodic boundary conditions */
+#define OUTFLOW  (0)          /* whether or not to use outflow boundary conditions in all directions */
+#elif WHICHPROBLEM == BH_PROBLEM_2D
+#define N1       (96)         /* number of physical zones in X1-direction */
+#define N2       (96)         /* number of physical zones in X2-direction */
+#define N3       (1)          /* number of physical zones in X3-direction */
+#define GR       (0)          /* whether or not to use GR */
+#define BL       (1)          /* whether or not to use BL coords */
+#define INFLOW   (0)          /* whether or not to allow inflow at boundaries */
+#define PERIODIC (0)          /* whether or not to use periodic boundary conditions */
+#define OUTFLOW  (0)          /* whether or not to use outflow boundary conditions in all directions */
+#elif WHICHPROBLEM == COMMON_ENVELOPE
+#define N1       (32)         /* number of physical zones in X1-direction */
+#define N2       (32)         /* number of physical zones in X2-direction */
+#define N3       (32)         /* number of physical zones in X3-direction */
+#define GR       (1)          /* whether or not to use GR */
+#define BL       (1)          /* whether or not to use BL coords */
+#define INFLOW   (0)          /* whether or not to allow inflow at boundaries */
+#define PERIODIC (0)          /* whether or not to use periodic boundary conditions */
 #define OUTFLOW  (0)          /* whether or not to use outflow boundary conditions in all directions */
 #endif
 

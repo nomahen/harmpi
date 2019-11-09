@@ -71,7 +71,7 @@ endif
 
 
 ifeq ($(USEMPI),1)
-EXTRALIBS= #-lm #-lmpi
+EXTRALIBS= -lm #-lmpi
 EXTRACCFLAGS=-DMPI
 CC=mpicc #/usr/local/bin/mpicc
 else
